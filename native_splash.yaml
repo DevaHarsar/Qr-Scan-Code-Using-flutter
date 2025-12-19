@@ -2,20 +2,20 @@
 # flutter_native_splash-acceptance.yaml
 
 flutter_native_splash:
+  # Use a plain color for the native launch screen so the Flutter Lottie splash
+  # appears seamless (no double image). Remove the image reference here.
   color: "#ffffff"
-  image: assets/images/img.png
-  branding: assets/images/img.png
+  image: null
+  branding: null
   color_dark: "#121212"
-  image_dark: assets/images/img.png
-  branding_dark: assets/images/img.png
-
+  image_dark: null
+  branding_dark: null
 
   android_12:
-    image: assets/images/img.png
+    image: null
     icon_background_color: "#ffffff"
-    image_dark: assets/images/img.png
+    image_dark: null
     icon_background_color_dark: "#121212"
-
 
   web: false
 

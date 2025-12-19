@@ -1,9 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.dev.qr.qr_code_scanner">
+    package="com.dev.qr_code_scanner">
 
     <uses-permission-sdk-23 android:name="android.permission.CAMERA" />
-   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <!-- Provide required visibility configuration for API level 30 and above -->
     <queries>
         <!-- If your app checks for SMS support -->
@@ -22,9 +25,15 @@
         </intent>
     </queries>
     <application
-        android:label="qr_code_scanner"
+        android:label="QR &amp; Barcode Scanner"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+
+        <!-- AdMob App ID: replace with your real app id for production. 
+             For testing, the sample AdMob App ID below is safe to use. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-8702370576330643~1574776783" />
 
         <activity
             android:name=".MainActivity"

@@ -1,5 +1,5 @@
 buildscript {
-   ext.kotlin_version = '1.7.10' // Set the Kotlin version here
+   ext.kotlin_version = '2.1.0' // Set the Kotlin version here
 
     repositories {
         google()
@@ -7,10 +7,7 @@ buildscript {
     }
 
     dependencies {
-      
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-
-
     }
 }
 
@@ -28,6 +25,26 @@ subprojects {
 
 subprojects {
     project.evaluationDependsOn(':app')
+}
+
+// Force all subprojects to use consistent Java/Kotlin JVM targets
+subprojects {
+    project.plugins.whenPluginAdded { plugin ->
+        if ("com.android.build.gradle.LibraryPlugin".equals(plugin.class.name) || 
+            "com.android.build.gradle.AppPlugin".equals(plugin.class.name)) {
+            project.android {
+                compileOptions {
+                    sourceCompatibility JavaVersion.VERSION_17
+                    targetCompatibility JavaVersion.VERSION_17
+                }
+            }
+        }
+    }
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            jvmTarget = "17"
+        }
+    }
 }
 
 tasks.register("clean", Delete) {
