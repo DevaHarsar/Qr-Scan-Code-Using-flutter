@@ -32,7 +32,7 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace "com.dev.qr_code_scanner"
     compileSdk 36
-    ndkVersion "26.1.10909125"
+    ndkVersion "27.0.12077973"
 
     signingConfigs {
         release {
@@ -91,6 +91,7 @@ flutter {
 
 dependencies {
     // Exclude old Play Core library to prevent compatibility issues with Android 14+
+    implementation "androidx.appcompat:appcompat:1.6.1"
     configurations.all {
         exclude group: 'com.google.android.play', module: 'core'
     }

@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:flutter/services.dart';
-// avoid importing homepage to prevent circular dependency; use theme colors instead
+import 'dart:io';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
-// ignore: depend_on_referenced_packages
-import 'package:url_launcher/url_launcher_string.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+
 class ResultScreen extends StatefulWidget {
   final String code;
   final Function() closeScreen;
 
-  const ResultScreen({super.key, required this.closeScreen, required this.code});
+  const ResultScreen(
+      {super.key, required this.closeScreen, required this.code});
 
   @override
   State<ResultScreen> createState() => _ResultScreenState();
@@ -24,19 +24,17 @@ class _ResultScreenState extends State<ResultScreen> {
   @override
   void initState() {
     super.initState();
+    _initBannerAd();
+  }
+
+  void _initBannerAd() {
     _bannerAd = BannerAd(
       adUnitId: 'ca-app-pub-8702370576330643/7461721807',
       size: AdSize.banner,
-      request: AdRequest(),
+      request: const AdRequest(),
       listener: BannerAdListener(
-        onAdLoaded: (_) {
-          setState(() {
-            _isBannerAdReady = true;
-          });
-        },
-        onAdFailedToLoad: (ad, error) {
-          ad.dispose();
-        },
+        onAdLoaded: (_) => setState(() => _isBannerAdReady = true),
+        onAdFailedToLoad: (ad, error) => ad.dispose(),
       ),
     )..load();
   }
@@ -47,33 +45,71 @@ class _ResultScreenState extends State<ResultScreen> {
     super.dispose();
   }
 
-  void _launchUrl() async {
-    var url = widget.code.trim();
-    if (!url.startsWith(RegExp(r'https?://'))) {
-      url = 'https://$url';
+  // --- HELPER 1: Extract Clean Data (Removes "Type:..." prefix) ---
+  // Used for Actions (Search, Copy, Share)
+  String _getRawContent() {
+    if (widget.code.startsWith('Type:')) {
+      final lines = widget.code.split('\n');
+      for (final line in lines) {
+        if (line.startsWith('Data: ')) {
+          return line.substring(6).trim(); // Removes "Data: "
+        }
+      }
     }
-    if (await canLaunchUrlString(url)) {
-      await launchUrlString(url, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cannot open link')));
-    }
+    return widget.code.trim(); // Fallback
   }
 
+  // --- HELPER 2: Extract Format (To distinguish Barcode vs QR) ---
+  String _getFormat() {
+    if (widget.code.startsWith('Type:')) {
+      final lines = widget.code.split('\n');
+      for (final line in lines) {
+        if (line.startsWith('Format: ')) {
+          return line.substring(8).trim().toUpperCase();
+        }
+      }
+    }
+    return 'UNKNOWN';
+  }
+
+  // --- LOGIC: Identify Content Type ---
   String _getDisplayLabel() {
-    final lower = widget.code.toLowerCase();
-    if (lower.contains('upi')) return 'UPI Payment';
-    if (lower.startsWith('http') || lower.startsWith('www') || lower.startsWith('https')) return 'Website/URL';
-    if (lower.startsWith('tel:') || RegExp(r'^\+?\d{7,}$').hasMatch(widget.code)) return 'Phone Number';
-    if (lower.startsWith('mailto:') || (widget.code.contains('@') && !widget.code.contains(' '))) return 'Email Address';
-    if (lower.startsWith('sms:')) return 'SMS Message';
-    if (lower.startsWith('begin:vcard')) return 'Contact (vCard)';
-    if (widget.code.contains(RegExp(r'^[0-9]*$'))) return 'Barcode';
-    return 'QR Code';
+    final rawData = _getRawContent();
+    final lower = rawData.toLowerCase();
+    final format = _getFormat();
+
+    // 1. Product Barcodes
+    if (format.contains('EAN') ||
+        format.contains('UPC') ||
+        format.contains('ISBN') ||
+        format.contains('PRODUCT')) {
+      return 'Product Barcode';
+    }
+
+    // 2. Standard QR Types
+    if (lower.contains('upi://') || lower.contains('pa=')) return 'UPI Payment';
+    if (lower.startsWith('http') || lower.contains('www.'))
+      return 'Website/URL';
+    if (lower.startsWith('tel:')) return 'Phone Number';
+    if (lower.startsWith('mailto:') ||
+        (rawData.contains('@') && !rawData.contains(' ')))
+      return 'Email Address';
+    if (lower.startsWith('smsto:') || lower.startsWith('sms:'))
+      return 'SMS / Message';
+    if (lower.startsWith('wifi:')) return 'WiFi Network';
+
+    // 3. Fallback
+    if (RegExp(r'^\+?\d{7,}$').hasMatch(rawData)) {
+      if (format.contains('QR')) return 'Phone Number';
+    }
+
+    return 'Text / Data';
   }
 
   IconData _getActionIcon() {
-    final label = _getDisplayLabel();
-    switch (label) {
+    switch (_getDisplayLabel()) {
+      case 'Product Barcode':
+        return Icons.shopping_cart;
       case 'Phone Number':
         return Icons.call;
       case 'Email Address':
@@ -82,338 +118,327 @@ class _ResultScreenState extends State<ResultScreen> {
         return Icons.language;
       case 'UPI Payment':
         return Icons.payment;
-      case 'SMS Message':
-        return Icons.sms;
-      case 'Contact (vCard)':
-        return Icons.person;
+      case 'WiFi Network':
+        return Icons.wifi;
+      case 'SMS / Message':
+        return Icons.message;
       default:
-        return Icons.open_in_browser;
+        return Icons.search;
     }
   }
 
   String _getActionLabel() {
-    final label = _getDisplayLabel();
-    switch (label) {
+    switch (_getDisplayLabel()) {
+      case 'Product Barcode':
+        return 'Search Product';
       case 'Phone Number':
-        return 'Call';
+        return 'Call Now';
       case 'Email Address':
         return 'Send Email';
       case 'Website/URL':
         return 'Open Link';
       case 'UPI Payment':
         return 'Pay Now';
-      case 'SMS Message':
-        return 'Send SMS';
-      case 'Contact (vCard)':
-        return 'View Contact';
+      case 'WiFi Network':
+        return 'Connect/View';
+      case 'SMS / Message':
+        return 'Send Message';
       default:
-        return 'Open';
+        return 'Web Search';
     }
   }
 
+  // --- CORE ACTION HANDLER ---
   Future<void> _handleScanned() async {
-    final data = widget.code.trim();
-    if (data.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No data to open')));
-      return;
-    }
+    final data = _getRawContent(); // USE RAW DATA FOR ACTIONS
+    final label = _getDisplayLabel();
 
-    final lower = data.toLowerCase();
+    try {
+      Uri? targetUri;
 
-    // vCard: show content and allow copy/share
-    if (lower.startsWith('begin:vcard')) {
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Contact (vCard)'),
-          content: SingleChildScrollView(child: Text(data)),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: data));
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact copied')));
-              },
-              child: const Text('Copy'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    // UPI Payment
-    if (lower.contains('upi://') || lower.contains('upi:')) {
-      if (await canLaunchUrlString(data)) {
-        await launchUrlString(data, mode: LaunchMode.externalApplication);
-        return;
+      if (label == 'Product Barcode' || label == 'Text / Data') {
+        targetUri = Uri.parse('https://www.google.com/search?q=$data');
+      } else if (label == 'Website/URL') {
+        String url = data;
+        if (!url.startsWith('http')) url = 'https://$url';
+        targetUri = Uri.parse(url);
+      } else if (label == 'UPI Payment') {
+        targetUri = Uri.parse(data.trim());
+      } else if (label == 'Phone Number') {
+        targetUri = Uri.parse('tel:$data');
+      } else if (label == 'Email Address') {
+        targetUri = Uri.parse('mailto:$data');
+      } else if (label == 'SMS / Message') {
+        targetUri = Uri.parse('sms:$data');
       }
-    }
 
-    // HTTP/HTTPS/WWW -> open in browser
-    if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('www.')) {
-      final url = data.startsWith(RegExp(r'https?://')) ? data : 'https://$data';
-      if (await canLaunchUrlString(url)) {
-        await launchUrlString(url, mode: LaunchMode.externalApplication);
-        return;
+      if (targetUri != null) {
+        // FIX: Don't use 'await canLaunchUrl(targetUri)' for UPI
+        // Just try to launch it. If it fails, the bool result will be false.
+        bool launched = await launchUrl(
+          targetUri,
+          mode: LaunchMode.externalApplication, // Critical for UPI apps
+        );
+
+        if (!launched) {
+          // Only show the error sheet if the launch actually failed
+          _showCopyShareSheet(data);
+        }
+      } else {
+        _showCopyShareSheet(data);
       }
+    } catch (e) {
+      _showCopyShareSheet(data);
     }
+  }
 
-    // mailto
-    if (lower.startsWith('mailto:') || (data.contains('@') && !data.contains(' '))) {
-      final mail = data.startsWith('mailto:') ? data : 'mailto:$data';
-      if (await canLaunchUrlString(mail)) {
-        await launchUrlString(mail, mode: LaunchMode.externalApplication);
-        return;
-      }
-    }
-
-    // SMS
-    if (lower.startsWith('sms:')) {
-      if (await canLaunchUrlString(data)) {
-        await launchUrlString(data, mode: LaunchMode.externalApplication);
-        return;
-      }
-    }
-
-    // Telephone numbers (plain digits) or tel: scheme
-    final phoneRe = RegExp(r'^\+?\d{7,}$');
-    if (lower.startsWith('tel:') || phoneRe.hasMatch(data)) {
-      final tel = data.startsWith('tel:') ? data : 'tel:$data';
-      if (await canLaunchUrlString(tel)) {
-        await launchUrlString(tel, mode: LaunchMode.externalApplication);
-        return;
-      }
-    }
-
-    // Nothing matched: show the scanned text with actions
+  void _showCopyShareSheet(String data) {
+    bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Scanned:', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            SelectableText(data),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.copy),
-              label: const Text('Copy'),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: data));
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
-              },
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.share),
-              label: const Text('Share'),
-              onPressed: () {
-                Navigator.pop(context);
-                Share.share(data);
-              },
-            ),
+            const Text('Action Failed',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            const SizedBox(height: 10),
+            const Text(
+                'Could not open this content directly. You can copy or share it below.'),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                    child: _buildOptionBtn(
+                        Icons.copy,
+                        'Copy',
+                        () => Clipboard.setData(ClipboardData(text: data)),
+                        isDarkMode)),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: _buildOptionBtn(Icons.share, 'Share',
+                        () => Share.share(data), isDarkMode)),
+              ],
+            )
           ],
         ),
       ),
     );
   }
-  
-  
-  
 
+  // --- STYLED OPTION BUTTON (Copy/Share) ---
+  Widget _buildOptionBtn(
+      IconData icon, String label, VoidCallback onTap, bool isDarkMode) {
+    return OutlinedButton.icon(
+      icon: Icon(icon),
+      label: Text(label),
+      onPressed: () {
+        onTap();
+        if (label == 'Copy') {
+          // Close sheet if opened via sheet, or check if context valid
+          if (Navigator.canPop(context)) {
+            // Only pop if this was called from the bottom sheet fallback
+            // Navigator.pop(context); // Optional: decide if you want to close sheet
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Copied to clipboard!')));
+        }
+      },
+      style: OutlinedButton.styleFrom(
+        // FIXED: Text Color based on theme
+        foregroundColor: isDarkMode ? Colors.white : Colors.black,
+        // FIXED: Border Color based on theme
+        side: BorderSide(
+            color: isDarkMode ? Colors.white54 : Colors.black54, width: 1.5),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    String displayLabel = _getDisplayLabel();
-    
-    return WillPopScope(
-      onWillPop: () async {
-        widget.closeScreen();
-        return true;
-      },
+
+    return PopScope(
+      onPopInvoked: (didPop) => widget.closeScreen(),
       child: Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
-          title: const Text(
-            "Scan Result",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-          ),
-          toolbarHeight: 60,
+          title: const Text("Scan Result"),
           centerTitle: true,
-          elevation: 0,
           leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new),
             onPressed: () {
-              Navigator.pop(context);
               widget.closeScreen();
+              Navigator.pop(context);
             },
-            icon: Icon(
-              Icons.arrow_back_ios_new_rounded,
-              color: isDarkMode ? Colors.white : Colors.black,
-            ),
           ),
         ),
         body: SingleChildScrollView(
           child: Column(
             children: [
-              const SizedBox(height: 20),
-              // QR Code Display
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: isDarkMode ? Colors.grey[850] : Colors.white,
-                  borderRadius: BorderRadius.circular(15),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.blue.withOpacity(0.3),
-                      blurRadius: 10,
-                      spreadRadius: 2,
+              const SizedBox(height: 30),
+
+              // 1. QR IMAGE PREVIEW (With Embedded Asset Logo)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.blue.withOpacity(0.2),
+                          blurRadius: 15,
+                          spreadRadius: 5)
+                    ],
+                  ),
+                  child: QrImageView(
+                    data: _getRawContent(), // The scanned data
+                    size: 180,
+                    version: QrVersions.auto,
+                    // 1. Link to your asset image
+                    embeddedImage:
+                        const AssetImage('assets/images/embeded.png'),
+                    // 2. Style the logo (Size)
+                    embeddedImageStyle: const QrEmbeddedImageStyle(
+                      size: Size(
+                          40, 40), // Adjust size (usually 15-20% of QR size)
                     ),
-                  ],
-                ),
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                child: QrImageView(
-                  data: widget.code,
-                  size: 200,
-                  version: QrVersions.auto,
-                  gapless: false,
-                  embeddedImage: const AssetImage('assets/images/embeded.png'),
-                  embeddedImageStyle: const QrEmbeddedImageStyle(
-                    size: Size(60, 60),
+                    // 3. Set High Error Correction so the logo doesn't break scanning
+                    errorCorrectionLevel: QrErrorCorrectLevel.H,
                   ),
                 ),
               ),
-              const SizedBox(height: 25),
-              // Scanned Result Label
-              Text(
-                  displayLabel,
-                  style: TextStyle(
-                    color: isDarkMode ? Colors.blue : Colors.black,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              const SizedBox(height: 15),
-              // Content Box with Text
+
+              // 2. SMART LABEL - Moved down slightly to avoid crowding
+              const SizedBox(height: 10),
               Container(
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                padding: const EdgeInsets.all(16),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: isDarkMode ? Colors.grey[900] : Colors.grey[100],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.blue.withOpacity(0.3),
-                    width: 1.5,
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _getDisplayLabel(),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
                   ),
                 ),
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    widget.code,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: isDarkMode ? Colors.white : Colors.black87,
-                      fontSize: 16,
-                      height: 1.5,
-                      letterSpacing: 0.3,
-                    ),
+              ),
+
+              const SizedBox(height: 25), // Spacing between label and box
+
+              // 3. ENHANCED CONTENT BOX (Better UX)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 25),
+                padding: const EdgeInsets.all(20),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: isDarkMode ? Colors.white10 : Colors.grey[100],
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                ),
+                child: SelectableText.rich(
+                  TextSpan(
+                    children: [
+                      // Line 1: Type Label
+                      const TextSpan(
+                        text: "Type: ",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, color: Colors.blue),
+                      ),
+                      // Line 1: Type Value
+                      TextSpan(
+                        text: "${_getDisplayLabel()}\n\n",
+                        style: const TextStyle(fontWeight: FontWeight.normal),
+                      ),
+                      // Line 2: Data Label
+                      const TextSpan(
+                        text: "Data: ",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, color: Colors.blue),
+                      ),
+                      // Line 2: Data Value (The actual link or text)
+                      TextSpan(
+                        text: _getRawContent(),
+                        style: const TextStyle(fontWeight: FontWeight.normal),
+                      ),
+                    ],
                   ),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16, height: 1.4),
                 ),
               ),
               const SizedBox(height: 30),
-              // Action Buttons
+
+              // 4. MAIN ACTION BUTTON (Uses Raw Data)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 25),
                 child: Column(
                   children: [
-                    // Primary Action Button
                     SizedBox(
                       width: double.infinity,
-                      height: 50,
+                      height: 55,
                       child: ElevatedButton.icon(
-                        icon: Icon(_getActionIcon(), color: isDarkMode ? Colors.white : Colors.black),
-                        label: Text(_getActionLabel(), style: TextStyle(color: isDarkMode ? Colors.white : Colors.black)),
+                        icon: Icon(_getActionIcon()),
+                        label: Text(_getActionLabel(),
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold)),
                         onPressed: _handleScanned,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: isDarkMode ? Colors.blue : Colors.grey[200],
-                          foregroundColor: isDarkMode ? Colors.white : Colors.black,
+                          // Fixed: Button color logic
+                          backgroundColor:
+                              isDarkMode ? Colors.blue : Colors.blue,
+                          foregroundColor: Colors.white,
+                          side: isDarkMode
+                              ? const BorderSide(
+                                  color: Colors.white24, width: 1)
+                              : null,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: isDarkMode ? Colors.white.withOpacity(0.5) : Colors.black.withOpacity(0.3), width: 1.5),
-                          ),
-                          elevation: isDarkMode ? 8 : 4,
-                          shadowColor: isDarkMode ? Colors.blue.withOpacity(0.5) : Colors.black.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(15)),
+                          elevation: isDarkMode ? 0 : 2,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    // Copy Button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: OutlinedButton.icon(
-                        icon: Icon(Icons.copy, color: isDarkMode ? Colors.white : Colors.black),
-                        label: Text('Copy', style: TextStyle(color: isDarkMode ? Colors.white : Colors.black)),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: widget.code));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Copied to clipboard'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: isDarkMode ? Colors.white : Colors.black,
-                          side: BorderSide(color: isDarkMode ? Colors.white : Colors.black, width: 1.5),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                    const SizedBox(height: 20),
+
+                    // 5. COPY & SHARE BUTTONS (Styled & Using Raw Data)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildOptionBtn(
+                              Icons.copy,
+                              'Copy',
+                              () => Clipboard.setData(
+                                  ClipboardData(text: _getRawContent())),
+                              isDarkMode),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    // Share Button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: OutlinedButton.icon(
-                        icon: Icon(Icons.share, color: isDarkMode ? Colors.white : Colors.black),
-                        label: Text('Share', style: TextStyle(color: isDarkMode ? Colors.white : Colors.black)),
-                        onPressed: () {
-                          Share.share(widget.code);
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: isDarkMode ? Colors.white : Colors.black,
-                          side: BorderSide(color: isDarkMode ? Colors.white : Colors.black, width: 1.5),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                        const SizedBox(width: 15),
+                        Expanded(
+                          child: _buildOptionBtn(Icons.share, 'Share',
+                              () => Share.share(_getRawContent()), isDarkMode),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 30),
             ],
           ),
         ),
-        // Banner ad at bottom
+
+        // 6. BANNER AD
         bottomNavigationBar: _isBannerAdReady
-            ? SizedBox(
-                height: _bannerAd.size.height.toDouble() + 16,
-                child: Padding(
-                  padding: const EdgeInsets.all(8.0),
+            ? SafeArea(
+                child: SizedBox(
+                  height: _bannerAd.size.height.toDouble(),
                   child: AdWidget(ad: _bannerAd),
                 ),
               )

@@ -2,10 +2,27 @@
 import 'package:flutter/material.dart';
 import 'package:qr_code_scanner/splash.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:flutter/services.dart';
 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 1. FORCE EDGE-TO-EDGE
+  // This tells Flutter to draw behind the system bars
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
+  // 2. SET OVERLAY STYLE (You were MISSING this!)
+  // This forces the Status Bar & Nav Bar to be transparent so content shows through.
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent, 
+    systemNavigationBarColor: Colors.transparent,
+    
+    // Adjusts icon colors (dark icons for light backgrounds)
+    statusBarIconBrightness: Brightness.dark, 
+    systemNavigationBarIconBrightness: Brightness.dark,
+  ));
+
   await MobileAds.instance.initialize();
   runApp(const MyApp());
 }
